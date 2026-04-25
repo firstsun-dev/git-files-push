@@ -1,4 +1,4 @@
-/* global Buffer */
+
 import { requestUrl, RequestUrlResponse, RequestUrlParam } from 'obsidian';
 import { GitServiceInterface } from './git-service-interface';
 
@@ -58,7 +58,7 @@ export class GitLabService implements GitServiceInterface {
                 const status = error.status || 0;
                 const responseData = error.response;
                 const text = responseData?.text || (responseData?.json ? JSON.stringify(responseData.json) : '');
-                
+
                 // Re-throw as a standardized response-like object if it looks like one
                 if (status) {
                     return {

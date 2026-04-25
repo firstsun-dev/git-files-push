@@ -1,4 +1,3 @@
-/* global Buffer */
 import { requestUrl, RequestUrlResponse, RequestUrlParam } from 'obsidian';
 import { GitServiceInterface } from './git-service-interface';
 
