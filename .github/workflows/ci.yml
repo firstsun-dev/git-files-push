@@ -83,6 +83,7 @@ jobs:
     name: Test
     needs: filter
     if: needs.filter.outputs.code == 'true'
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
@@ -144,7 +145,6 @@ jobs:
         with:
           name: build-output
           path: .
-      - name: Create plugin package
       - name: Create plugin package
         run: |
           VERSION=${{ needs.test.outputs.version }}
