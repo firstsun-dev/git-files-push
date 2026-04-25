@@ -99,7 +99,10 @@ export class GitLabService extends BaseGitService implements GitServiceInterface
         const bytes = new TextEncoder().encode(content);
         let binary = '';
         for (let i = 0; i < bytes.byteLength; i++) {
-            binary += String.fromCodePoint(bytes[i]);
+            const byte = bytes[i];
+            if (byte !== undefined) {
+                binary += String.fromCodePoint(byte);
+            }
         }
         return btoa(binary);
     }
