@@ -105,7 +105,7 @@ export class GitLabService implements GitServiceInterface {
     async pushFile(path: string, content: string, branch: string, commitMessage: string, existingSha?: string): Promise<string> {
         const url = this.getApiUrl(path);
 
-        const sha = existingSha !== undefined ? existingSha : (await this.getFile(path, branch)).sha;
+        const sha = existingSha === undefined ? (await this.getFile(path, branch)).sha : existingSha;
         const method = sha ? 'PUT' : 'POST';
 
         const response = await this.safeRequest({
@@ -154,7 +154,8 @@ export class GitLabService implements GitServiceInterface {
     async listFiles(branch: string, path: string = ''): Promise<string[]> {
         const encodedProjectId = encodeURIComponent(this.projectId);
         const searchPath = this.rootPath || path || '';
-        const url = `${this.baseUrl}/api/v4/projects/${encodedProjectId}/repository/tree?ref=${branch}&recursive=true&per_page=100${searchPath ? `&path=${encodeURIComponent(searchPath)}` : ''}`;
+        const searchPathParam = searchPath ? `&path=${encodeURIComponent(searchPath)}` : '';
+        const url = `${this.baseUrl}/api/v4/projects/${encodedProjectId}/repository/tree?ref=${branch}&recursive=true&per_page=100${searchPathParam}`;
 
         const response = await this.safeRequest({
             url,
@@ -244,7 +245,7 @@ export class GitLabService implements GitServiceInterface {
         const bytes = new TextEncoder().encode(str);
         let binary = '';
         bytes.forEach((byte) => {
-            binary += String.fromCharCode(byte);
+            binary += String.fromCodePoint(byte);
         });
         return btoa(binary);
     }
@@ -253,7 +254,7 @@ export class GitLabService implements GitServiceInterface {
         const binary = atob(base64.replace(/\s/g, ''));
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
+            bytes[i] = binary.codePointAt(i) || 0;
         }
         return new TextDecoder().decode(bytes);
     }

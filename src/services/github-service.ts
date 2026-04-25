@@ -98,7 +98,7 @@ export class GitHubService implements GitServiceInterface {
     async pushFile(path: string, content: string, branch: string, commitMessage: string, existingSha?: string): Promise<string> {
         const url = this.getApiUrl(path);
 
-        const sha = existingSha !== undefined ? existingSha : (await this.getFile(path, branch)).sha;
+        const sha = existingSha === undefined ? (await this.getFile(path, branch)).sha : existingSha;
 
         const body: Record<string, unknown> = {
             message: commitMessage,
@@ -270,7 +270,7 @@ export class GitHubService implements GitServiceInterface {
         const bytes = new TextEncoder().encode(str);
         let binary = '';
         bytes.forEach((byte) => {
-            binary += String.fromCharCode(byte);
+            binary += String.fromCodePoint(byte);
         });
         return btoa(binary);
     }
@@ -279,7 +279,7 @@ export class GitHubService implements GitServiceInterface {
         const binary = atob(base64.replace(/\s/g, ''));
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
+            bytes[i] = binary.codePointAt(i) || 0;
         }
         return new TextDecoder().decode(bytes);
     }
