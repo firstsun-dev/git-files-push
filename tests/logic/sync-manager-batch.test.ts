@@ -1,49 +1,40 @@
-/* eslint-disable @typescript-eslint/unbound-method */
-import { describe, it, expect, vi, beforeEach, Mocked } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncManager } from '../../src/logic/sync-manager';
-import { App, DataAdapter } from 'obsidian';
+import { App, TFile, Notice } from 'obsidian';
+import { GitLabService } from '../../src/services/gitlab-service';
 import { GitLabFilesPushSettings } from '../../src/settings';
-import { GitServiceInterface } from '../../src/services/git-service-interface';
 
 vi.mock('obsidian');
 
 describe('SyncManager Batch Operations', () => {
     let manager: SyncManager;
-    let mockApp: Mocked<App>;
-    let mockGitService: Mocked<GitServiceInterface>;
+    let mockApp: any;
+    let mockGitService: any;
     let mockSettings: GitLabFilesPushSettings;
 
     beforeEach(() => {
         vi.clearAllMocks();
-
-        const mockAdapter = {
-            exists: vi.fn(),
-            read: vi.fn(),
-            write: vi.fn(),
-        } as unknown as Mocked<DataAdapter>;
 
         mockApp = {
             vault: {
                 read: vi.fn(),
                 modify: vi.fn(),
                 getFileByPath: vi.fn(),
-                adapter: mockAdapter,
+                adapter: {
+                    exists: vi.fn(),
+                    read: vi.fn(),
+                    write: vi.fn(),
+                }
             },
             workspace: {
                 getActiveFile: vi.fn(),
-                detachLeavesOfType: vi.fn(),
             }
-        } as unknown as Mocked<App>;
+        };
 
         mockGitService = {
             pushFile: vi.fn(),
             getFile: vi.fn(),
-            testConnection: vi.fn(),
-            listFiles: vi.fn(),
-            deleteFile: vi.fn(),
-            getRepoGitignores: vi.fn(),
-            updateConfig: vi.fn(),
-        } as unknown as Mocked<GitServiceInterface>;
+        };
 
         mockSettings = {
             serviceType: 'github',
@@ -52,42 +43,37 @@ describe('SyncManager Batch Operations', () => {
             githubRepo: 'repo',
             branch: 'main',
             syncMetadata: {},
-        } as unknown as GitLabFilesPushSettings;
+        } as any;
 
-        manager = new SyncManager(mockApp, mockGitService, mockSettings);
-        // @ts-ignore - accessing private for test
-        manager.saveSettings = vi.fn().mockResolvedValue(undefined);
+        manager = new SyncManager(mockApp as any, mockGitService as any, mockSettings);
+        (manager as any).saveSettings = vi.fn();
     });
 
     describe('pushAllFiles', () => {
         it('should push multiple files correctly', async () => {
             const files = ['file1.md', 'file2.md'];
-            const adapter = mockApp.vault.adapter as Mocked<DataAdapter>;
             
-            vi.mocked(adapter.exists).mockResolvedValue(true);
-            vi.mocked(adapter.read).mockResolvedValue('content');
-            
-            vi.mocked(mockGitService.getFile).mockResolvedValue({ content: '', sha: 'old-sha' });
-            vi.mocked(mockGitService.pushFile).mockResolvedValue('path');
+            mockApp.vault.adapter.exists.mockResolvedValue(true);
+            mockApp.vault.adapter.read.mockResolvedValue('content');
+            mockGitService.getFile.mockResolvedValue({ sha: 'old-sha' });
+            mockGitService.pushFile.mockResolvedValue('path');
 
             const results = await manager.pushAllFiles(files);
 
             expect(results.success).toBe(2);
-            expect(vi.mocked(mockGitService.pushFile)).toHaveBeenCalledTimes(2);
-            expect(vi.mocked(adapter.read)).toHaveBeenCalledWith('file1.md');
-            expect(vi.mocked(adapter.read)).toHaveBeenCalledWith('file2.md');
+            expect(mockGitService.pushFile).toHaveBeenCalledTimes(2);
+            expect(mockApp.vault.adapter.read).toHaveBeenCalledWith('file1.md');
+            expect(mockApp.vault.adapter.read).toHaveBeenCalledWith('file2.md');
         });
 
         it('should handle failures during batch push', async () => {
             const files = ['good.md', 'bad.md'];
-            const adapter = mockApp.vault.adapter as Mocked<DataAdapter>;
             
-            vi.mocked(adapter.exists).mockResolvedValue(true);
-            vi.mocked(adapter.read).mockResolvedValue('content');
+            mockApp.vault.adapter.exists.mockResolvedValue(true);
+            mockApp.vault.adapter.read.mockResolvedValue('content');
+            mockGitService.getFile.mockResolvedValue({ sha: 'old-sha' });
             
-            vi.mocked(mockGitService.getFile).mockResolvedValue({ content: '', sha: 'old-sha' });
-            
-            vi.mocked(mockGitService.pushFile)
+            mockGitService.pushFile
                 .mockResolvedValueOnce('path')
                 .mockRejectedValueOnce(new Error('Push failed'));
 
@@ -95,29 +81,28 @@ describe('SyncManager Batch Operations', () => {
 
             expect(results.success).toBe(1);
             expect(results.failed).toBe(1);
-            expect(results.errors[0]!.file).toBe('bad.md');
+            expect(results.errors[0].file).toBe('bad.md');
         });
     });
 
     describe('pullAllAllFiles', () => {
         it('should pull multiple files correctly', async () => {
             const files = ['file1.md', 'file2.md'];
-            const adapter = mockApp.vault.adapter as Mocked<DataAdapter>;
             
-            vi.mocked(mockGitService.getFile).mockResolvedValue({ content: 'remote content', sha: 'new-sha' });
-            vi.mocked(adapter.exists).mockResolvedValue(true);
+            mockGitService.getFile.mockResolvedValue({ content: 'remote content', sha: 'new-sha' });
+            mockApp.vault.adapter.exists.mockResolvedValue(true);
 
             const results = await manager.pullAllFiles(files);
 
             expect(results.success).toBe(2);
-            expect(vi.mocked(adapter.write)).toHaveBeenCalledTimes(2);
-            expect(vi.mocked(adapter.write)).toHaveBeenCalledWith('file1.md', 'remote content');
+            expect(mockApp.vault.adapter.write).toHaveBeenCalledTimes(2);
+            expect(mockApp.vault.adapter.write).toHaveBeenCalledWith('file1.md', 'remote content');
         });
 
         it('should handle missing remote files during batch pull', async () => {
             const files = ['exists.md', 'missing.md'];
             
-            vi.mocked(mockGitService.getFile)
+            mockGitService.getFile
                 .mockResolvedValueOnce({ content: 'content', sha: 'sha' })
                 .mockResolvedValueOnce({ content: '', sha: '' });
 
@@ -125,7 +110,7 @@ describe('SyncManager Batch Operations', () => {
 
             expect(results.success).toBe(1);
             expect(results.failed).toBe(1);
-            expect(results.errors[0]!.error).toContain('File not found in remote');
+            expect(results.errors[0].error).toContain('File not found in remote');
         });
     });
 });
