@@ -20,7 +20,7 @@ describe('GitLabService', () => {
                 status: 200,
                 json: {
                     content: btoa('hello world'),
-                    blob_id: 'test-sha'
+                    last_commit_id: 'test-commit-id'
                 }
             } as unknown as RequestUrlResponse;
             vi.mocked(requestUrl).mockResolvedValue(mockResponse);
@@ -28,7 +28,7 @@ describe('GitLabService', () => {
             const result = await service.getFile('test.md', 'main');
 
             expect(result.content).toBe('hello world');
-            expect(result.sha).toBe('test-sha');
+            expect(result.sha).toBe('test-commit-id');
             
             const calls = vi.mocked(requestUrl).mock.calls;
             const lastCallParams = calls[0];
@@ -45,17 +45,17 @@ describe('GitLabService', () => {
             expect(result.sha).toBe('');
         });
 
-        it('should return blob_id as sha', async () => {
+        it('should return last_commit_id as sha', async () => {
             const mockResponse = {
                 status: 200,
                 json: {
                     content: btoa('test content'),
-                    blob_id: 'test-blob-id'
+                    last_commit_id: 'test-last-commit-id'
                 }
             } as unknown as RequestUrlResponse;
             vi.mocked(requestUrl).mockResolvedValue(mockResponse);
             const result = await service.getFile('test.md', 'main');
-            expect(result.sha).toBe('test-blob-id');
+            expect(result.sha).toBe('test-last-commit-id');
         });
     });
 

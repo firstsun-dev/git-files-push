@@ -31,7 +31,7 @@ export class GitLabService extends BaseGitService implements GitServiceInterface
             
             return {
                 content: this.decodeContent(data.content),
-                sha: data.blob_id
+                sha: data.last_commit_id
             };
         } catch (e) {
             if (e instanceof Error && e.message.includes('404')) {

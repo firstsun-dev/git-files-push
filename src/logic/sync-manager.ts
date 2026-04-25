@@ -302,6 +302,16 @@ export class SyncManager {
     private async processSingleBatchPush(fileOrPath: TFile | string, path: string, name: string, isString: boolean) {
         if (!await this.checkFileExists(path, isString)) throw new Error('File no longer exists');
         const content = await this.getFileContent(fileOrPath);
+
+        // Rename detection
+        if (!isString && fileOrPath instanceof TFile) {
+            const renamedFrom = this.detectRename(fileOrPath);
+            if (renamedFrom) {
+                await this.handleRename(fileOrPath, renamedFrom, content);
+                return;
+            }
+        }
+
         const remote = await this.gitService.getFile(path, this.settings.branch);
         await this.gitService.pushFile(path, content, this.settings.branch, `Update ${name} from Obsidian`, remote.sha || undefined);
         const newRemote = await this.gitService.getFile(path, this.settings.branch);

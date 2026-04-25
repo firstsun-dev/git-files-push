@@ -24,6 +24,7 @@ export interface GitLabFileResponse {
     content: string;
     blob_id: string;
     file_path: string;
+    last_commit_id: string;
 }
 
 export interface GitLabTreeItem {
