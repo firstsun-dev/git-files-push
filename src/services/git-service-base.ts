@@ -82,10 +82,17 @@ export abstract class BaseGitService {
     }
 
     protected getFullPath(path: string): string {
+        // If path starts with /, it's an absolute path from repo root, bypass rootPath
+        if (path.startsWith('/')) {
+            return path.slice(1);
+        }
+
         if (!this.rootPath) return path;
-        const cleanRoot = this.rootPath.endsWith('/') ? this.rootPath : `${this.rootPath}/`;
-        const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-        return cleanRoot + cleanPath;
+
+        const cleanRoot = this.rootPath.replace(/\/+$/, ''); // Remove trailing slashes
+        const cleanPath = path.replace(/^\/+/, ''); // Remove leading slashes
+
+        return cleanRoot ? `${cleanRoot}/${cleanPath}` : cleanPath;
     }
 
     abstract getFile(path: string, branch: string): Promise<GitFile>;
@@ -94,4 +101,26 @@ export abstract class BaseGitService {
     abstract deleteFile(path: string, branch: string, message: string): Promise<void>;
     abstract testConnection(): Promise<boolean>;
     abstract getRepoGitignores(branch: string): Promise<string[]>;
+
+    protected encodeContent(content: string): string {
+        const bytes = new TextEncoder().encode(content);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+            const byte = bytes[i];
+            if (byte !== undefined) {
+                binary += String.fromCodePoint(byte);
+            }
+        }
+        return btoa(binary);
+    }
+
+    protected decodeContent(base64: string): string {
+        const binary = atob(base64.replace(/\s/g, ''));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+            const cp = binary.codePointAt(i);
+            bytes[i] = cp !== undefined ? cp : 0;
+        }
+        return new TextDecoder().decode(bytes);
+    }
 }

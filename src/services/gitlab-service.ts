@@ -95,25 +95,4 @@ export class GitLabService extends BaseGitService implements GitServiceInterface
         return allFiles.filter(p => p.endsWith('.gitignore'));
     }
 
-    private encodeContent(content: string): string {
-        const bytes = new TextEncoder().encode(content);
-        let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) {
-            const byte = bytes[i];
-            if (byte !== undefined) {
-                binary += String.fromCodePoint(byte);
-            }
-        }
-        return btoa(binary);
-    }
-
-    private decodeContent(base64: string): string {
-        const binary = atob(base64.replace(/\s/g, ''));
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            const cp = binary.codePointAt(i);
-            bytes[i] = cp !== undefined ? cp : 0;
-        }
-        return new TextDecoder().decode(bytes);
-    }
 }
