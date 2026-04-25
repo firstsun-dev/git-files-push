@@ -219,19 +219,23 @@ export default class GitLabFilesPush extends Plugin {
 
 	initializeGitService(): void {
 		if (this.settings.serviceType === 'gitlab') {
-			this.gitService = new GitLabService(
+			const service = new GitLabService();
+			service.updateConfig(
 				this.settings.gitlabBaseUrl,
 				this.settings.gitlabToken,
 				this.settings.projectId,
 				this.settings.rootPath
 			);
+			this.gitService = service;
 		} else {
-			this.gitService = new GitHubService(
+			const service = new GitHubService();
+			service.updateConfig(
 				this.settings.githubToken,
 				this.settings.githubOwner,
 				this.settings.githubRepo,
 				this.settings.rootPath
 			);
+			this.gitService = service;
 		}
 
 		if (this.sync) {
