@@ -74,6 +74,8 @@ jobs:
   artifact:
     name: Package Artifact
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: test
     # Run on PRs or feature branches (not on main/master as release handles that)
     if: github.event_name == 'pull_request' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master')
