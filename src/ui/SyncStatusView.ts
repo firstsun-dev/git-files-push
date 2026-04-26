@@ -1,5 +1,6 @@
 import { ItemView, WorkspaceLeaf, TFile, Notice, Platform, setTooltip } from 'obsidian';
 import GitLabFilesPush from '../main';
+import { getServiceName } from '../settings';
 import { ConfirmModal } from './ConfirmModal';
 
 export const SYNC_STATUS_VIEW_TYPE = 'sync-status-view';
@@ -72,7 +73,7 @@ export class SyncStatusView extends ItemView {
 
     private renderInfoStrip(container: HTMLElement): void {
         const el = container.createDiv({ cls: 'ssv-info' });
-        const serviceName = this.plugin.settings.serviceType === 'gitlab' ? 'GitLab' : 'GitHub';
+        const serviceName = getServiceName(this.plugin.settings);
 
         el.createSpan({ cls: 'ssv-info-item', text: serviceName });
 
@@ -186,26 +187,18 @@ export class SyncStatusView extends ItemView {
     }
 
     private renderActionButtons(bar: HTMLElement, canPush: number, canPull: number, canDelete: number): void {
-        const pushBtn = bar.createEl('button', { cls: 'ssv-btn ssv-btn-push' });
-        pushBtn.createSpan({ text: '↑' });
-        pushBtn.createSpan({ cls: 'ssv-btn-label', text: ` Push (${canPush})` });
-        pushBtn.disabled = canPush === 0;
-        setTooltip(pushBtn, `Push ${canPush} files`);
-        pushBtn.addEventListener('click', () => void this.pushSelected());
+        this.renderLargeButton(bar, '↑', ` Push (${canPush})`, `Push ${canPush} files`, () => void this.pushSelected(), 'push', canPush === 0);
+        this.renderLargeButton(bar, '↓', ` Pull (${canPull})`, `Pull ${canPull} files`, () => void this.pullSelected(), 'pull', canPull === 0);
+        this.renderLargeButton(bar, '✕', ` Delete (${canDelete})`, `Delete ${canDelete} files`, () => void this.deleteSelected(), 'danger', canDelete === 0);
+    }
 
-        const pullBtn = bar.createEl('button', { cls: 'ssv-btn ssv-btn-pull' });
-        pullBtn.createSpan({ text: '↓' });
-        pullBtn.createSpan({ cls: 'ssv-btn-label', text: ` Pull (${canPull})` });
-        pullBtn.disabled = canPull === 0;
-        setTooltip(pullBtn, `Pull ${canPull} files`);
-        pullBtn.addEventListener('click', () => void this.pullSelected());
-
-        const delBtn = bar.createEl('button', { cls: 'ssv-btn ssv-btn-delete' });
-        delBtn.createSpan({ text: '✕' });
-        delBtn.createSpan({ cls: 'ssv-btn-label', text: ` Delete (${canDelete})` });
-        delBtn.disabled = canDelete === 0;
-        setTooltip(delBtn, `Delete ${canDelete} files`);
-        delBtn.addEventListener('click', () => void this.deleteSelected());
+    private renderLargeButton(container: HTMLElement, icon: string, label: string, tooltip: string, onClick: () => void, cls: string, disabled: boolean): void {
+        const btn = container.createEl('button', { cls: `ssv-btn ssv-btn-${cls}` });
+        btn.createSpan({ text: icon });
+        btn.createSpan({ cls: 'ssv-btn-label', text: label });
+        btn.disabled = disabled;
+        setTooltip(btn, tooltip);
+        btn.addEventListener('click', onClick);
     }
 
     private renderFileList(container: HTMLElement): void {
@@ -386,33 +379,39 @@ export class SyncStatusView extends ItemView {
     }
 
     private computeSideBySideDiff(remote: string, local: string): DiffRow[] {
-        const normalize = (s: string) => s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-        const L = normalize(remote).split('\n');
-        const R = normalize(local).split('\n');
+        const L = this.normalizeContent(remote).split('\n');
+        const R = this.normalizeContent(local).split('\n');
         const m = L.length, n = R.length;
 
-        // For very large files fall back to simple comparison
-        if (m * n > 250_000) return this.simpleDiff(L, R);
+        if (m * n > 250_000 || (m + 1) * (n + 1) > 1_000_000) {
+            return this.simpleDiff(L, R);
+        }
 
-        // LCS DP — flat Uint32Array avoids noUncheckedIndexedAccess issues
+        const dp = this.buildDPMatrix(L, R, m, n);
+        const ops = this.backtrackDP(L, R, dp, m, n);
+        return this.pairDiffOps(ops, L, R);
+    }
+
+    private normalizeContent(s: string): string {
+        return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    }
+
+    private buildDPMatrix(L: string[], R: string[], m: number, n: number): Uint32Array {
         const W = n + 1;
-        const totalSize = (m + 1) * W;
-        
-        // Security hotspot: prevent huge memory allocations that could lead to DoS
-        if (totalSize > 1_000_000) return this.simpleDiff(L, R);
-
-        const dp = new Uint32Array(totalSize);
+        const dp = new Uint32Array((m + 1) * W);
         for (let i = 1; i <= m; i++) {
             for (let j = 1; j <= n; j++) {
                 dp[i * W + j] = L[i - 1] === R[j - 1]
-                    ? (dp[(i - 1) * W + (j - 1)] ?? 0) + 1
-                    : Math.max(dp[(i - 1) * W + j] ?? 0, dp[i * W + (j - 1)] ?? 0);
+                    ? dp[(i - 1) * W + (j - 1)] + 1
+                    : Math.max(dp[(i - 1) * W + j], dp[i * W + (j - 1)]);
             }
         }
+        return dp;
+    }
 
-        // Backtrack — li/ri = -1 when not applicable (avoids optional fields)
-        type Op = { type: 'unchanged' | 'removed' | 'added'; li: number; ri: number };
-        const ops: Op[] = [];
+    private backtrackDP(L: string[], R: string[], dp: Uint32Array, m: number, n: number): Array<{ type: 'unchanged' | 'removed' | 'added'; li: number; ri: number }> {
+        const W = n + 1;
+        const ops: Array<{ type: 'unchanged' | 'removed' | 'added'; li: number; ri: number }> = [];
         let i = m, j = n;
         while (i > 0 || j > 0) {
             if (i > 0 && j > 0 && L[i - 1] === R[j - 1]) {
@@ -426,14 +425,15 @@ export class SyncStatusView extends ItemView {
                 i--;
             }
         }
-        ops.reverse();
+        return ops.reverse();
+    }
 
-        // Pair consecutive removed ↔ added side-by-side
+    private pairDiffOps(ops: Array<{ type: 'unchanged' | 'removed' | 'added'; li: number; ri: number }>, L: string[], R: string[]): DiffRow[] {
         const rows: DiffRow[] = [];
         let k = 0;
         while (k < ops.length) {
             const op = ops[k];
-            if (op === undefined) break;
+            if (!op) break;
 
             if (op.type === 'unchanged') {
                 rows.push({
@@ -446,7 +446,7 @@ export class SyncStatusView extends ItemView {
                 const addedIdxs: number[] = [];
                 while (k < ops.length) {
                     const cur = ops[k];
-                    if (cur === undefined || cur.type === 'unchanged') break;
+                    if (!cur || cur.type === 'unchanged') break;
                     if (cur.type === 'removed') removedIdxs.push(cur.li);
                     else addedIdxs.push(cur.ri);
                     k++;
@@ -685,7 +685,7 @@ export class SyncStatusView extends ItemView {
         }
 
         const files = targets.map(s => s.file || s.path);
-        const serviceName = this.plugin.settings.serviceType === 'gitlab' ? 'GitLab' : 'GitHub';
+        const serviceName = getServiceName(this.plugin.settings);
         const msg = op === 'push' 
             ? `Push ${files.length} file(s) to ${serviceName}?`
             : `Pull ${files.length} file(s) from ${serviceName}? This will overwrite local changes.`;
