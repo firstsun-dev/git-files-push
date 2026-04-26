@@ -410,8 +410,8 @@ export class SyncStatusView extends ItemView {
         for (let i = 1; i <= m; i++) {
             for (let j = 1; j <= n; j++) {
                 dp[i * W + j] = L[i - 1] === R[j - 1]
-                    ? dp[(i - 1) * W + (j - 1)] + 1
-                    : Math.max(dp[(i - 1) * W + j], dp[i * W + (j - 1)]);
+                    ? (dp[(i - 1) * W + (j - 1)]!) + 1
+                    : Math.max(dp[(i - 1) * W + j]!, dp[i * W + (j - 1)]!);
             }
         }
         return dp;
@@ -441,7 +441,7 @@ export class SyncStatusView extends ItemView {
         }
         
         const canAdd = j > 0;
-        const preferAdd = canAdd && (i === 0 || dp[i * W + (j - 1)] >= dp[(i - 1) * W + j]);
+        const preferAdd = canAdd && (i === 0 || dp[i * W + (j - 1)]! >= dp[(i - 1) * W + j]!);
 
         if (preferAdd) {
             return { type: 'added', li: -1, ri: j - 1 };
@@ -478,8 +478,10 @@ export class SyncStatusView extends ItemView {
     private collectChangeBatch(ops: DiffOp[], startIdx: number): DiffOp[] {
         const batch: DiffOp[] = [];
         let k = startIdx;
-        while (k < ops.length && ops[k] && ops[k].type !== 'unchanged') {
-            batch.push(ops[k]!);
+        while (k < ops.length) {
+            const item = ops[k];
+            if (!item || item.type === 'unchanged') break;
+            batch.push(item);
             k++;
         }
         return batch;
