@@ -28,6 +28,14 @@ interface DiffRow {
 
 type FilterValue = 'all' | 'synced' | 'modified' | 'unsynced' | 'remote-only';
 
+type DiffOpType = 'unchanged' | 'removed' | 'added';
+
+interface DiffOp {
+    type: DiffOpType;
+    li: number;
+    ri: number;
+}
+
 export class SyncStatusView extends ItemView {
     plugin: GitLabFilesPush;
     private readonly fileStatuses: Map<string, FileStatus> = new Map();
@@ -388,7 +396,7 @@ export class SyncStatusView extends ItemView {
         }
 
         const dp = this.buildDPMatrix(L, R, m, n);
-        const ops = this.backtrackDP(L, R, dp, m, n);
+        const ops = this.tracePath(L, R, dp, m, n);
         return this.pairDiffOps(ops, L, R);
     }
 
@@ -409,26 +417,39 @@ export class SyncStatusView extends ItemView {
         return dp;
     }
 
-    private backtrackDP(L: string[], R: string[], dp: Uint32Array, m: number, n: number): Array<{ type: 'unchanged' | 'removed' | 'added'; li: number; ri: number }> {
+    private tracePath(L: string[], R: string[], dp: Uint32Array, m: number, n: number): DiffOp[] {
         const W = n + 1;
-        const ops: Array<{ type: 'unchanged' | 'removed' | 'added'; li: number; ri: number }> = [];
+        const ops: DiffOp[] = [];
         let i = m, j = n;
         while (i > 0 || j > 0) {
-            if (i > 0 && j > 0 && L[i - 1] === R[j - 1]) {
-                ops.push({ type: 'unchanged', li: i - 1, ri: j - 1 });
-                i--; j--;
-            } else if (j > 0 && (i === 0 || (dp[i * W + (j - 1)] ?? 0) >= (dp[(i - 1) * W + j] ?? 0))) {
-                ops.push({ type: 'added', li: -1, ri: j - 1 });
-                j--;
-            } else {
-                ops.push({ type: 'removed', li: i - 1, ri: -1 });
-                i--;
-            }
+            const op = this.getNextDiffOp(L, R, dp, W, i, j);
+            ops.push(op);
+            [i, j] = this.updateIndices(op, i, j);
         }
         return ops.reverse();
     }
 
-    private pairDiffOps(ops: Array<{ type: 'unchanged' | 'removed' | 'added'; li: number; ri: number }>, L: string[], R: string[]): DiffRow[] {
+    private updateIndices(op: DiffOp, i: number, j: number): [number, number] {
+        if (op.type === 'unchanged') return [i - 1, j - 1];
+        if (op.type === 'added') return [i, j - 1];
+        return [i - 1, j];
+    }
+
+    private getNextDiffOp(L: string[], R: string[], dp: Uint32Array, W: number, i: number, j: number): DiffOp {
+        if (i > 0 && j > 0 && L[i - 1] === R[j - 1]) {
+            return { type: 'unchanged', li: i - 1, ri: j - 1 };
+        }
+        
+        const canAdd = j > 0;
+        const preferAdd = canAdd && (i === 0 || dp[i * W + (j - 1)] >= dp[(i - 1) * W + j]);
+
+        if (preferAdd) {
+            return { type: 'added', li: -1, ri: j - 1 };
+        }
+        return { type: 'removed', li: i - 1, ri: -1 };
+    }
+
+    private pairDiffOps(ops: DiffOp[], L: string[], R: string[]): DiffRow[] {
         const rows: DiffRow[] = [];
         let k = 0;
         while (k < ops.length) {
@@ -436,37 +457,54 @@ export class SyncStatusView extends ItemView {
             if (!op) break;
 
             if (op.type === 'unchanged') {
-                rows.push({
-                    left:  { lineNum: op.li + 1, content: L[op.li] ?? null, type: 'unchanged' },
-                    right: { lineNum: op.ri + 1, content: R[op.ri] ?? null, type: 'unchanged' },
-                });
+                rows.push(this.createUnchangedRow(op, L, R));
                 k++;
             } else {
-                const removedIdxs: number[] = [];
-                const addedIdxs: number[] = [];
-                while (k < ops.length) {
-                    const cur = ops[k];
-                    if (!cur || cur.type === 'unchanged') break;
-                    if (cur.type === 'removed') removedIdxs.push(cur.li);
-                    else addedIdxs.push(cur.ri);
-                    k++;
-                }
-                const len = Math.max(removedIdxs.length, addedIdxs.length);
-                for (let x = 0; x < len; x++) {
-                    const rIdx = removedIdxs[x];
-                    const aIdx = addedIdxs[x];
-                    rows.push({
-                        left:  rIdx === undefined
-                            ? { lineNum: null, content: null, type: 'empty' }
-                            : { lineNum: rIdx + 1, content: L[rIdx] ?? null, type: 'removed' },
-                        right: aIdx === undefined
-                            ? { lineNum: null, content: null, type: 'empty' }
-                            : { lineNum: aIdx + 1, content: R[aIdx] ?? null, type: 'added'   },
-                    });
-                }
+                const batch = this.collectChangeBatch(ops, k);
+                rows.push(...this.createChangeRows(batch, L, R));
+                k += batch.length;
             }
         }
         return rows;
+    }
+
+    private createUnchangedRow(op: DiffOp, L: string[], R: string[]): DiffRow {
+        return {
+            left:  { lineNum: op.li + 1, content: L[op.li] ?? null, type: 'unchanged' },
+            right: { lineNum: op.ri + 1, content: R[op.ri] ?? null, type: 'unchanged' },
+        };
+    }
+
+    private collectChangeBatch(ops: DiffOp[], startIdx: number): DiffOp[] {
+        const batch: DiffOp[] = [];
+        let k = startIdx;
+        while (k < ops.length && ops[k] && ops[k].type !== 'unchanged') {
+            batch.push(ops[k]!);
+            k++;
+        }
+        return batch;
+    }
+
+    private createChangeRows(batch: DiffOp[], L: string[], R: string[]): DiffRow[] {
+        const removedIdxs = batch.filter(o => o.type === 'removed').map(o => o.li);
+        const addedIdxs = batch.filter(o => o.type === 'added').map(o => o.ri);
+        const len = Math.max(removedIdxs.length, addedIdxs.length);
+        const rows: DiffRow[] = [];
+
+        for (let x = 0; x < len; x++) {
+            rows.push({
+                left: this.createDiffSide(removedIdxs[x], L, 'removed'),
+                right: this.createDiffSide(addedIdxs[x], R, 'added')
+            });
+        }
+        return rows;
+    }
+
+    private createDiffSide(idx: number | undefined, lines: string[], type: 'removed' | 'added'): DiffSide {
+        if (idx === undefined) {
+            return { lineNum: null, content: null, type: 'empty' };
+        }
+        return { lineNum: idx + 1, content: lines[idx] ?? null, type };
     }
 
     // Fallback for very large files (> 500×500 lines)
